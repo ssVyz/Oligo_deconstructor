@@ -223,18 +223,24 @@ class OligoAnalyzer:
                     return False
         return True
     
-    def _create_consensus(self, sequences: List[str], treat_g_as_a: bool = False) -> Tuple[str, int]:
-        """Create a consensus sequence with ambiguity codes"""
+    def _create_consensus(self, sequences: List[str], treat_g_as_a: bool = False,
+                          exclude_n: bool = False) -> Tuple[str, int, bool]:
+        """Create a consensus sequence with ambiguity codes.
+
+        Returns:
+            Tuple of (consensus_sequence, ambiguity_count, is_valid)
+            is_valid is False if exclude_n=True and an N would be required
+        """
         if not sequences:
-            return "", 0
-        
+            return "", 0, True
+
         seq_len = len(sequences[0])
         consensus = []
         ambiguity_count = 0
-        
+
         for pos in range(seq_len):
             bases_at_pos = set(seq[pos] for seq in sequences)
-            
+
             if treat_g_as_a:
                 # If we have both A and G, treat them as equivalent
                 if bases_at_pos == {'A', 'G'} or bases_at_pos == {'A'} or bases_at_pos == {'G'}:
@@ -243,78 +249,92 @@ class OligoAnalyzer:
                 # If we have A or G mixed with others
                 if 'A' in bases_at_pos and 'G' in bases_at_pos:
                     bases_at_pos = (bases_at_pos - {'G'}) | {'A'}
-            
+
             if len(bases_at_pos) == 1:
                 consensus.append(bases_at_pos.pop())
             else:
                 code = self._get_ambiguity_code(bases_at_pos, treat_g_as_a)
+                # Check if N is required but excluded
+                if exclude_n and code == 'N':
+                    return ''.join(consensus), ambiguity_count, False
                 consensus.append(code)
                 ambiguity_count += 1
-        
-        return ''.join(consensus), ambiguity_count
+
+        return ''.join(consensus), ambiguity_count, True
     
     def find_minimum_variants_greedy(self, max_ambiguities: int, treat_g_as_a: bool = False,
+                                      exclude_n: bool = False,
                                       progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
         """
         Find minimum set of variants using at most n ambiguities per variant.
         Uses a greedy set-cover approach for efficiency with large datasets.
+
+        Args:
+            max_ambiguities: Maximum number of ambiguous positions allowed per variant
+            treat_g_as_a: If True, treat G and A as equivalent (G-A wobble)
+            exclude_n: If True, do not allow N (any base) as an ambiguity code
+            progress_callback: Optional callback for progress updates
         """
         result = AnalysisResult()
         result.total_sequences = len(self.sequences)
-        
+
         if not self.sequences:
             result.message = "No sequences to analyze"
             return result
-        
+
         # Get unique sequences with counts
         seq_counts = Counter(self.sequences)
         unique_seqs = list(seq_counts.keys())
         total = len(self.sequences)
-        
+
         # Track which sequences are still uncovered
         uncovered = set(unique_seqs)
         variants = []
-        
+
         iteration = 0
         while uncovered:
             iteration += 1
             if progress_callback:
                 progress_callback(f"Finding variant {len(variants) + 1}... ({len(uncovered)} sequences remaining)")
-            
+
             best_consensus = None
             best_coverage = set()
             best_ambiguities = float('inf')
-            
+
             # Try to find the best consensus that covers the most uncovered sequences
             # Start with the most frequent uncovered sequence
             uncovered_counts = [(seq, seq_counts[seq]) for seq in uncovered]
             uncovered_counts.sort(key=lambda x: -x[1])
-            
+
             # For each potential seed sequence
             for seed_seq, _ in uncovered_counts[:min(50, len(uncovered_counts))]:  # Limit seeds for performance
                 # Find all sequences that could potentially be combined with this seed
                 potential_group = [seed_seq]
-                
+
                 for other_seq in uncovered:
                     if other_seq == seed_seq:
                         continue
-                    
-                    # Check if combining would exceed ambiguity limit
+
+                    # Check if combining would exceed ambiguity limit or require N
                     combined = potential_group + [other_seq]
-                    consensus, amb_count = self._create_consensus(combined, treat_g_as_a)
-                    
-                    if amb_count <= max_ambiguities:
+                    consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
+
+                    if is_valid and amb_count <= max_ambiguities:
                         potential_group.append(other_seq)
-                
+
                 # Create consensus for this group
-                consensus, amb_count = self._create_consensus(potential_group, treat_g_as_a)
-                
+                consensus, amb_count, is_valid = self._create_consensus(potential_group, treat_g_as_a, exclude_n)
+
+                # If consensus is invalid (requires N but excluded), skip this group
+                if not is_valid:
+                    continue
+
                 # Check actual coverage (may include sequences not in potential_group)
                 coverage = set()
                 for seq in uncovered:
                     if self._sequence_matches_consensus(seq, consensus, treat_g_as_a):
                         coverage.add(seq)
-                
+
                 # Prefer larger coverage, then fewer ambiguities
                 coverage_score = sum(seq_counts[s] for s in coverage)
                 if coverage_score > sum(seq_counts[s] for s in best_coverage) or \
@@ -322,23 +342,23 @@ class OligoAnalyzer:
                     best_consensus = consensus
                     best_coverage = coverage
                     best_ambiguities = amb_count
-            
+
             if best_consensus is None or not best_coverage:
                 # Fallback: use the most frequent uncovered sequence as-is
                 most_freq = max(uncovered, key=lambda x: seq_counts[x])
                 best_consensus = most_freq
                 best_coverage = {most_freq}
                 best_ambiguities = 0
-            
+
             # Record this variant
             count = sum(seq_counts[s] for s in best_coverage)
             percentage = (count / total) * 100
             variants.append((best_consensus, count, percentage))
             result.ambiguity_count = max(result.ambiguity_count, best_ambiguities)
-            
+
             # Remove covered sequences
             uncovered -= best_coverage
-        
+
         result.variants = variants
         result.coverage = 100.0
         return result

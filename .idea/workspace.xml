@@ -4,7 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e7e9fc56-6f28-4515-8fe0-08b93dcf1c17" name="Changes" comment="Initial commit from claude2" />
+    <list default="true" id="e7e9fc56-6f28-4515-8fe0-08b93dcf1c17" name="Changes" comment="Reorganize the output">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/oligo_analyzer.py" beforeDir="false" afterPath="$PROJECT_DIR$/oligo_analyzer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/oligo_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/oligo_engine.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -61,12 +65,21 @@
       <option name="project" value="LOCAL" />
       <updated>1769674221322</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Reorganize the output">
+      <option name="closed" value="true" />
+      <created>1769674734220</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1769674734220</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Initial commit from claude" />
     <MESSAGE value="Initial commit from claude2" />
-    <option name="LAST_COMMIT_MESSAGE" value="Initial commit from claude2" />
+    <MESSAGE value="Reorganize the output" />
+    <option name="LAST_COMMIT_MESSAGE" value="Reorganize the output" />
   </component>
 </project>

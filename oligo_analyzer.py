@@ -158,9 +158,10 @@ except ImportError:
                         return False
             return True
 
-        def _create_consensus(self, sequences: List[str], treat_g_as_a: bool = False) -> Tuple[str, int]:
+        def _create_consensus(self, sequences: List[str], treat_g_as_a: bool = False,
+                              exclude_n: bool = False) -> Tuple[str, int, bool]:
             if not sequences:
-                return "", 0
+                return "", 0, True
             seq_len = len(sequences[0])
             consensus = []
             ambiguity_count = 0
@@ -176,11 +177,14 @@ except ImportError:
                     consensus.append(bases_at_pos.pop())
                 else:
                     code = self._get_ambiguity_code(bases_at_pos, treat_g_as_a)
+                    if exclude_n and code == 'N':
+                        return ''.join(consensus), ambiguity_count, False
                     consensus.append(code)
                     ambiguity_count += 1
-            return ''.join(consensus), ambiguity_count
+            return ''.join(consensus), ambiguity_count, True
 
         def find_minimum_variants_greedy(self, max_ambiguities: int, treat_g_as_a: bool = False,
+                                         exclude_n: bool = False,
                                          progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
             result = AnalysisResult()
             result.total_sequences = len(self.sequences)
@@ -205,10 +209,12 @@ except ImportError:
                         if other_seq == seed_seq:
                             continue
                         combined = potential_group + [other_seq]
-                        consensus, amb_count = self._create_consensus(combined, treat_g_as_a)
-                        if amb_count <= max_ambiguities:
+                        consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
+                        if is_valid and amb_count <= max_ambiguities:
                             potential_group.append(other_seq)
-                    consensus, amb_count = self._create_consensus(potential_group, treat_g_as_a)
+                    consensus, amb_count, is_valid = self._create_consensus(potential_group, treat_g_as_a, exclude_n)
+                    if not is_valid:
+                        continue
                     coverage = set()
                     for seq in uncovered:
                         if self._sequence_matches_consensus(seq, consensus, treat_g_as_a):
@@ -435,6 +441,15 @@ class OligoAnalyzerGUI:
             variable=self.treat_g_as_a_var
         )
         self.treat_g_as_a_check.grid(row=2, column=0, columnspan=2, sticky='w', pady=5)
+
+        # Exclude N option
+        self.exclude_n_var = tk.BooleanVar(value=False)
+        self.exclude_n_check = ttk.Checkbutton(
+            options_frame,
+            text="Exclude N (any base) as ambiguity - only use 2-fold and 3-fold degenerate codes",
+            variable=self.exclude_n_var
+        )
+        self.exclude_n_check.grid(row=3, column=0, columnspan=2, sticky='w', pady=5)
         
         # Additional options (expandable)
         extra_frame = ttk.LabelFrame(analysis_frame, text="Additional Options", padding="10")
@@ -523,17 +538,20 @@ class OligoAnalyzerGUI:
     def update_options_state(self):
         """Update the state of options based on analysis type"""
         analysis_type = self.analysis_type.get()
-        
+
         # Enable/disable based on analysis type
         if analysis_type == "all_variants":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='disabled')
+            self.exclude_n_check.configure(state='disabled')
         elif analysis_type == "min_variants":
             self.max_ambiguities_spin.configure(state='normal')
             self.top_n_spin.configure(state='disabled')
+            self.exclude_n_check.configure(state='normal')
         elif analysis_type == "top_n":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='normal')
+            self.exclude_n_check.configure(state='disabled')
     
     def load_file(self):
         """Load sequences from a FASTA file"""
@@ -639,19 +657,20 @@ AAAAGAAAA"""
         
         analysis_type = self.analysis_type.get()
         treat_g_as_a = self.treat_g_as_a_var.get()
-        
+        exclude_n = self.exclude_n_var.get()
+
         # Disable run button during analysis
         self.run_btn.configure(state='disabled')
         self.progress_var.set("Analyzing...")
         self.root.update()
-        
+
         try:
             if analysis_type == "all_variants":
                 result = self.analyzer.count_variants()
             elif analysis_type == "min_variants":
                 max_amb = int(self.max_ambiguities_var.get())
                 result = self.analyzer.find_minimum_variants_greedy(
-                    max_amb, treat_g_as_a,
+                    max_amb, treat_g_as_a, exclude_n,
                     progress_callback=lambda msg: self._update_progress(msg)
                 )
             elif analysis_type == "top_n":
@@ -700,6 +719,8 @@ AAAAGAAAA"""
 
         if self.treat_g_as_a_var.get():
             lines.append("G-A Wobble:       Enabled (G treated as A)")
+        if self.exclude_n_var.get() and analysis_type == "min_variants":
+            lines.append("Exclude N:        Enabled (only 2-fold and 3-fold degenerate codes)")
 
         lines.append("")
         lines.append("-" * 80)
@@ -725,20 +746,24 @@ AAAAGAAAA"""
         header_count = "Count".rjust(max_count_len)
 
         if show_pct:
-            lines.append(f"{header_variant}    {header_seq}    {header_count}    Percentage")
-            lines.append("-" * 80)
+            lines.append(f"{header_variant}    {header_seq}    {header_count}    %        Cumulative")
+            lines.append("-" * 90)
         else:
             lines.append(f"{header_variant}    {header_seq}    {header_count}")
             lines.append("-" * 80)
 
         # Results with fixed-width columns
+        cumulative_pct = 0.0
         for i, (seq, count, pct) in enumerate(result.variants, 1):
+            cumulative_pct += pct
             formatted_seq = self.format_sequence(seq)
             variant_label = f"Variant {i}".ljust(variant_col_width)
             seq_col = formatted_seq.ljust(max_seq_len)
             count_col = f"{count:,}".rjust(max_count_len)
             if show_pct:
-                lines.append(f"{variant_label}    {seq_col}    {count_col}    {pct:.1f}%")
+                pct_col = f"{pct:.1f}%".rjust(7)
+                cumul_col = f"{cumulative_pct:.1f}%".rjust(10)
+                lines.append(f"{variant_label}    {seq_col}    {count_col}    {pct_col}    {cumul_col}")
             else:
                 lines.append(f"{variant_label}    {seq_col}    {count_col}")
         
