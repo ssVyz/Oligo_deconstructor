@@ -6,7 +6,6 @@ A professional tool for analyzing and consolidating oligonucleotide sequences
 with support for ambiguity codes and G-A wobble base pairing.
 
 Author: Claude (Anthropic)
-License: MIT
 """
 
 import tkinter as tk
