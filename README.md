@@ -11,7 +11,10 @@ A professional Python/Tkinter application for analyzing and consolidating oligon
   - Find minimum variants using up to N ambiguities (IUPAC codes)
   - Find top N most frequent variants
 - **G-A wobble base pairing support**: Option to treat G as A (G-T mispairing not considered a mismatch)
-- **Professional output**: Tab-separated results ready for Excel import
+- **Exclude N ambiguity**: Option to only use 2-fold and 3-fold degenerate codes (no N)
+- **Reverse complement output**: Convert results to reverse complement for reverse primer design
+- **Cumulative coverage**: See running total percentage to know how many variants cover your target
+- **Professional output**: Fixed-width aligned columns for easy reading
 - **Copy-friendly**: One-click copy to clipboard
 
 ## Installation
@@ -78,18 +81,29 @@ You can:
 - **Maximum ambiguities**: Max number of ambiguous positions per variant (for min variants mode)
 - **Number of top variants**: How many variants to return (for top N mode)
 - **Treat G as A**: Enable G-T wobble base pairing tolerance
+- **Exclude N**: Only use 2-fold (R, Y, S, W, K, M) and 3-fold (B, D, H, V) degenerate codes; prevents using N (any base) in consensus sequences
+
+#### Additional Options
+
+- **Add spaces every 3 bases**: Visual grouping for easier reading
+- **Show percentages**: Display percentage and cumulative coverage columns
+- **Reverse complement**: Output sequences as reverse complement (useful when designing reverse primers from sense-strand alignments)
 
 ### 3. View Results
 
 **Results Tab**: View, copy, or export your results.
 
-Results are formatted with tabs for easy pasting into Excel:
+Results are displayed with fixed-width columns for proper alignment:
 
 ```
-Variant 1    AAA AAA AAA    3    50.0%
-Variant 2    ATA AAA AAA    2    33.3%
-Variant 3    AAA AGA AAA    1    16.7%
+Variant     Sequence       Count    %        Cumulative
+------------------------------------------------------------------------------------------
+Variant 1    AAA AAA AAA        3    50.0%       50.0%
+Variant 2    ATA AAA AAA        2    33.3%       83.3%
+Variant 3    AAA AGA AAA        1    16.7%      100.0%
 ```
+
+The **Cumulative** column shows the running total coverage - useful for deciding how many variants you need to achieve your desired coverage threshold.
 
 ## IUPAC Ambiguity Codes
 
@@ -113,6 +127,20 @@ The tool uses standard IUPAC nucleotide codes:
 | V | A, C, G | Not T |
 | N | A, C, G, T | Any |
 
+### Complement Pairs (for Reverse Complement)
+
+When using the reverse complement option, ambiguity codes are also complemented:
+
+| Code | Complement | Reason |
+|------|------------|--------|
+| A | T | Standard base pairing |
+| C | G | Standard base pairing |
+| R (A/G) | Y (C/T) | Purines ↔ Pyrimidines |
+| K (G/T) | M (A/C) | Keto ↔ Amino |
+| B (C/G/T) | V (A/C/G) | Not-A ↔ Not-T |
+| D (A/G/T) | H (A/C/T) | Not-C ↔ Not-G |
+| S, W, N | S, W, N | Self-complementary |
+
 ## Examples
 
 ### Example 1: All Variants Without Ambiguities
@@ -129,17 +157,17 @@ The tool uses standard IUPAC nucleotide codes:
 
 **Output:**
 ```
-Variant 1    AAA AAA AAA    3    50.0%
-Variant 2    ATA AAA AAA    2    33.3%
-Variant 3    AAA AGA AAA    1    16.7%
+Variant 1    AAA AAA AAA    3    50.0%       50.0%
+Variant 2    ATA AAA AAA    2    33.3%       83.3%
+Variant 3    AAA AGA AAA    1    16.7%      100.0%
 ```
 
 ### Example 2: Minimum Variants with 1 Ambiguity
 
 **Result:**
 ```
-Variant 1    AWA AAA AAA    5    83.3%
-Variant 2    AAA AGA AAA    1    16.7%
+Variant 1    AWA AAA AAA    5    83.3%       83.3%
+Variant 2    AAA AGA AAA    1    16.7%      100.0%
 ```
 
 (W = A or T, covering both AAA and ATA at position 2)
@@ -150,8 +178,25 @@ When "Treat G as A" is enabled, G-T wobble base pairing is tolerated:
 
 **Result:**
 ```
-Variant 1    AWA AGA AAA    6    100%
+Variant 1    AWA AAA AAA    6    100.0%      100.0%
 ```
+
+### Example 4: Reverse Complement for Reverse Primer
+
+When designing a reverse primer, enable "Reverse complement" to get the antisense sequence:
+
+**Input (sense strand):**
+```
+>Seq1
+ATGCGATCGA
+```
+
+**Output with reverse complement enabled:**
+```
+Variant 1    TCG ATC GCA T    1    100.0%      100.0%
+```
+
+The output is ready to order as a reverse primer.
 
 ## Quality Filtering
 
@@ -174,14 +219,23 @@ A detailed quality report shows how many sequences were removed and why.
 
 ## Output Format
 
-Results are tab-separated for easy import into spreadsheet applications:
+Results use fixed-width columns that align properly regardless of variant count:
 
 ```
-Variant    Sequence    Count    Percentage
-Variant 1    AAA AAA AAA    3    50.0%
+Variant     Sequence       Count    %        Cumulative
+------------------------------------------------------------------------------------------
+Variant  1    AAA AAA AAA        3    50.0%       50.0%
+Variant  2    ATA AAA AAA        2    33.3%       83.3%
+Variant 10    AAA AGA AAA        1    16.7%      100.0%
 ```
 
-Copy the results and paste directly into Excel - columns will be properly aligned.
+- **Variant**: Variant number (aligned for any count)
+- **Sequence**: The oligo sequence (with optional 3-base spacing)
+- **Count**: Number of input sequences matching this variant
+- **%**: Percentage of total sequences
+- **Cumulative**: Running total percentage (coverage if using variants 1 through N)
+
+Copy the results and paste directly into Excel or any text editor.
 
 ## Extending the Tool
 
