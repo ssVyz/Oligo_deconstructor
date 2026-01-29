@@ -378,27 +378,157 @@ class OligoAnalyzer:
         """Find top N most frequent variants without ambiguities"""
         result = AnalysisResult()
         result.total_sequences = len(self.sequences)
-        
+
         if not self.sequences:
             result.message = "No sequences to analyze"
             return result
-        
+
         counts = Counter(self.sequences)
         total = len(self.sequences)
-        
+
         # Get top N variants
         top_variants = counts.most_common(n)
-        
+
         covered = 0
         for seq, count in top_variants:
             percentage = (count / total) * 100
             result.variants.append((seq, count, percentage))
             covered += count
-        
+
         result.coverage = (covered / total) * 100
         result.uncovered_count = total - covered
         result.uncovered_percentage = 100 - result.coverage
-        
+
+        return result
+
+    def find_incremental_variants(self, target_percentage: float, treat_g_as_a: bool = False,
+                                   exclude_n: bool = False,
+                                   progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
+        """
+        Find variants incrementally, each covering at least target_percentage of remaining sequences.
+
+        At each step, finds the variant with the minimum number of ambiguities that covers
+        at least the target percentage of remaining sequences. If no variant reaches the target,
+        selects the highest-coverage variant with minimum ambiguities.
+
+        Args:
+            target_percentage: Target coverage percentage (0-100) for each iteration
+            treat_g_as_a: If True, treat G and A as equivalent (G-A wobble)
+            exclude_n: If True, do not allow N (any base) as an ambiguity code
+            progress_callback: Optional callback for progress updates
+        """
+        result = AnalysisResult()
+        result.total_sequences = len(self.sequences)
+
+        if not self.sequences:
+            result.message = "No sequences to analyze"
+            return result
+
+        # Get unique sequences with counts
+        seq_counts = Counter(self.sequences)
+        total_original = len(self.sequences)
+
+        # Track which sequences are still uncovered (use list of tuples for counting)
+        remaining_seqs = list(self.sequences)  # Keep duplicates for accurate counting
+        variants = []
+
+        iteration = 0
+        while remaining_seqs:
+            iteration += 1
+            remaining_total = len(remaining_seqs)
+            target_count = (target_percentage / 100.0) * remaining_total
+
+            if progress_callback:
+                progress_callback(f"Finding variant {len(variants) + 1}... ({remaining_total:,} sequences remaining)")
+
+            # Get counts of unique sequences in remaining pool
+            remaining_counts = Counter(remaining_seqs)
+            unique_remaining = list(remaining_counts.keys())
+
+            best_consensus = None
+            best_coverage_seqs = set()
+            best_coverage_count = 0
+            best_ambiguities = float('inf')
+            found_target = False
+
+            # Try increasing ambiguity levels starting from 0
+            max_possible_ambiguities = len(unique_remaining[0]) if unique_remaining else 0
+
+            for amb_level in range(max_possible_ambiguities + 1):
+                if found_target:
+                    break
+
+                # For each potential seed sequence (start with most frequent)
+                sorted_remaining = sorted(unique_remaining, key=lambda x: -remaining_counts[x])
+
+                for seed_seq in sorted_remaining[:min(50, len(sorted_remaining))]:
+                    # Build a group that fits within this ambiguity level
+                    potential_group = [seed_seq]
+
+                    for other_seq in unique_remaining:
+                        if other_seq == seed_seq:
+                            continue
+
+                        combined = potential_group + [other_seq]
+                        consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
+
+                        if is_valid and amb_count <= amb_level:
+                            potential_group.append(other_seq)
+
+                    # Create consensus for this group
+                    consensus, amb_count, is_valid = self._create_consensus(potential_group, treat_g_as_a, exclude_n)
+
+                    if not is_valid:
+                        continue
+
+                    if amb_count > amb_level:
+                        continue
+
+                    # Check actual coverage
+                    coverage_seqs = set()
+                    for seq in unique_remaining:
+                        if self._sequence_matches_consensus(seq, consensus, treat_g_as_a):
+                            coverage_seqs.add(seq)
+
+                    coverage_count = sum(remaining_counts[s] for s in coverage_seqs)
+
+                    # Check if this meets our criteria
+                    if coverage_count >= target_count:
+                        # Found a variant that meets target at this ambiguity level
+                        if not found_target or coverage_count > best_coverage_count or \
+                           (coverage_count == best_coverage_count and amb_count < best_ambiguities):
+                            best_consensus = consensus
+                            best_coverage_seqs = coverage_seqs
+                            best_coverage_count = coverage_count
+                            best_ambiguities = amb_count
+                            found_target = True
+                    elif coverage_count > best_coverage_count or \
+                         (coverage_count == best_coverage_count and amb_count < best_ambiguities):
+                        # Track best so far even if doesn't meet target
+                        best_consensus = consensus
+                        best_coverage_seqs = coverage_seqs
+                        best_coverage_count = coverage_count
+                        best_ambiguities = amb_count
+
+            # If no valid consensus found, use the most frequent remaining sequence
+            if best_consensus is None or best_coverage_count == 0:
+                most_freq = max(unique_remaining, key=lambda x: remaining_counts[x])
+                best_consensus = most_freq
+                best_coverage_seqs = {most_freq}
+                best_coverage_count = remaining_counts[most_freq]
+                best_ambiguities = 0
+
+            # Record this variant (percentage is relative to original total)
+            percentage = (best_coverage_count / total_original) * 100
+            variants.append((best_consensus, best_coverage_count, percentage))
+            result.ambiguity_count = max(result.ambiguity_count, best_ambiguities)
+
+            # Remove covered sequences from remaining pool
+            remaining_seqs = [seq for seq in remaining_seqs
+                            if not self._sequence_matches_consensus(seq, best_consensus, treat_g_as_a)]
+
+        result.variants = variants
+        result.coverage = 100.0
         return result
 
 

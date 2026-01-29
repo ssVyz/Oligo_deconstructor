@@ -265,6 +265,81 @@ except ImportError:
             result.uncovered_percentage = 100 - result.coverage
             return result
 
+        def find_incremental_variants(self, target_percentage: float, treat_g_as_a: bool = False,
+                                       exclude_n: bool = False,
+                                       progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
+            result = AnalysisResult()
+            result.total_sequences = len(self.sequences)
+            if not self.sequences:
+                result.message = "No sequences to analyze"
+                return result
+            seq_counts = Counter(self.sequences)
+            total_original = len(self.sequences)
+            remaining_seqs = list(self.sequences)
+            variants = []
+            while remaining_seqs:
+                remaining_total = len(remaining_seqs)
+                target_count = (target_percentage / 100.0) * remaining_total
+                if progress_callback:
+                    progress_callback(f"Finding variant {len(variants) + 1}... ({remaining_total:,} remaining)")
+                remaining_counts = Counter(remaining_seqs)
+                unique_remaining = list(remaining_counts.keys())
+                best_consensus = None
+                best_coverage_seqs = set()
+                best_coverage_count = 0
+                best_ambiguities = float('inf')
+                found_target = False
+                max_possible_ambiguities = len(unique_remaining[0]) if unique_remaining else 0
+                for amb_level in range(max_possible_ambiguities + 1):
+                    if found_target:
+                        break
+                    sorted_remaining = sorted(unique_remaining, key=lambda x: -remaining_counts[x])
+                    for seed_seq in sorted_remaining[:min(50, len(sorted_remaining))]:
+                        potential_group = [seed_seq]
+                        for other_seq in unique_remaining:
+                            if other_seq == seed_seq:
+                                continue
+                            combined = potential_group + [other_seq]
+                            consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
+                            if is_valid and amb_count <= amb_level:
+                                potential_group.append(other_seq)
+                        consensus, amb_count, is_valid = self._create_consensus(potential_group, treat_g_as_a, exclude_n)
+                        if not is_valid or amb_count > amb_level:
+                            continue
+                        coverage_seqs = set()
+                        for seq in unique_remaining:
+                            if self._sequence_matches_consensus(seq, consensus, treat_g_as_a):
+                                coverage_seqs.add(seq)
+                        coverage_count = sum(remaining_counts[s] for s in coverage_seqs)
+                        if coverage_count >= target_count:
+                            if not found_target or coverage_count > best_coverage_count or \
+                               (coverage_count == best_coverage_count and amb_count < best_ambiguities):
+                                best_consensus = consensus
+                                best_coverage_seqs = coverage_seqs
+                                best_coverage_count = coverage_count
+                                best_ambiguities = amb_count
+                                found_target = True
+                        elif coverage_count > best_coverage_count or \
+                             (coverage_count == best_coverage_count and amb_count < best_ambiguities):
+                            best_consensus = consensus
+                            best_coverage_seqs = coverage_seqs
+                            best_coverage_count = coverage_count
+                            best_ambiguities = amb_count
+                if best_consensus is None or best_coverage_count == 0:
+                    most_freq = max(unique_remaining, key=lambda x: remaining_counts[x])
+                    best_consensus = most_freq
+                    best_coverage_seqs = {most_freq}
+                    best_coverage_count = remaining_counts[most_freq]
+                    best_ambiguities = 0
+                percentage = (best_coverage_count / total_original) * 100
+                variants.append((best_consensus, best_coverage_count, percentage))
+                result.ambiguity_count = max(result.ambiguity_count, best_ambiguities)
+                remaining_seqs = [seq for seq in remaining_seqs
+                                if not self._sequence_matches_consensus(seq, best_consensus, treat_g_as_a)]
+            result.variants = variants
+            result.coverage = 100.0
+            return result
+
 
 # ============================================================================
 # GUI APPLICATION
@@ -410,6 +485,7 @@ class OligoAnalyzerGUI:
             ("all_variants", "Find all unique sequence variants (no ambiguities)"),
             ("min_variants", "Find minimum variants with up to N ambiguities"),
             ("top_n", "Find top N most frequent variants"),
+            ("incremental", "Incremental: find variants covering X% of remaining sequences"),
         ]
         
         for i, (value, text) in enumerate(types):
@@ -441,7 +517,17 @@ class OligoAnalyzerGUI:
             textvariable=self.top_n_var
         )
         self.top_n_spin.grid(row=1, column=1, sticky='w', pady=5)
-        
+
+        # Incremental target percentage
+        ttk.Label(options_frame, text="Target coverage per variant (%):").grid(
+            row=2, column=0, sticky='w', pady=5)
+        self.incremental_pct_var = tk.StringVar(value="50")
+        self.incremental_pct_spin = ttk.Spinbox(
+            options_frame, from_=1, to=100, width=10,
+            textvariable=self.incremental_pct_var
+        )
+        self.incremental_pct_spin.grid(row=2, column=1, sticky='w', pady=5)
+
         # G-A wobble option
         self.treat_g_as_a_var = tk.BooleanVar(value=False)
         self.treat_g_as_a_check = ttk.Checkbutton(
@@ -449,7 +535,7 @@ class OligoAnalyzerGUI:
             text="Treat G as A (G-T wobble base pairing is not considered a mismatch)",
             variable=self.treat_g_as_a_var
         )
-        self.treat_g_as_a_check.grid(row=2, column=0, columnspan=2, sticky='w', pady=5)
+        self.treat_g_as_a_check.grid(row=3, column=0, columnspan=2, sticky='w', pady=5)
 
         # Exclude N option
         self.exclude_n_var = tk.BooleanVar(value=False)
@@ -458,7 +544,7 @@ class OligoAnalyzerGUI:
             text="Exclude N (any base) as ambiguity - only use 2-fold and 3-fold degenerate codes",
             variable=self.exclude_n_var
         )
-        self.exclude_n_check.grid(row=3, column=0, columnspan=2, sticky='w', pady=5)
+        self.exclude_n_check.grid(row=4, column=0, columnspan=2, sticky='w', pady=5)
         
         # Additional options (expandable)
         extra_frame = ttk.LabelFrame(analysis_frame, text="Additional Options", padding="10")
@@ -560,15 +646,23 @@ class OligoAnalyzerGUI:
         if analysis_type == "all_variants":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='disabled')
+            self.incremental_pct_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='disabled')
         elif analysis_type == "min_variants":
             self.max_ambiguities_spin.configure(state='normal')
             self.top_n_spin.configure(state='disabled')
+            self.incremental_pct_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='normal')
         elif analysis_type == "top_n":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='normal')
+            self.incremental_pct_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='disabled')
+        elif analysis_type == "incremental":
+            self.max_ambiguities_spin.configure(state='disabled')
+            self.top_n_spin.configure(state='disabled')
+            self.incremental_pct_spin.configure(state='normal')
+            self.exclude_n_check.configure(state='normal')
     
     def load_file(self):
         """Load sequences from a FASTA file"""
@@ -693,6 +787,12 @@ AAAAGAAAA"""
             elif analysis_type == "top_n":
                 top_n = int(self.top_n_var.get())
                 result = self.analyzer.find_top_n_variants(top_n, treat_g_as_a)
+            elif analysis_type == "incremental":
+                target_pct = float(self.incremental_pct_var.get())
+                result = self.analyzer.find_incremental_variants(
+                    target_pct, treat_g_as_a, exclude_n,
+                    progress_callback=lambda msg: self._update_progress(msg)
+                )
             else:
                 result = AnalysisResult()
             
@@ -729,6 +829,7 @@ AAAAGAAAA"""
             "all_variants": "All Unique Variants (No Ambiguities)",
             "min_variants": f"Minimum Variants (Max {self.max_ambiguities_var.get()} Ambiguities)",
             "top_n": f"Top {self.top_n_var.get()} Most Frequent Variants",
+            "incremental": f"Incremental Variants (Target {self.incremental_pct_var.get()}% per variant)",
         }
         lines.append(f"Analysis Type:    {type_names.get(analysis_type, analysis_type)}")
         lines.append(f"Total Sequences:  {result.total_sequences:,}")
