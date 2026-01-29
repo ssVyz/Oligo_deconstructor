@@ -36,6 +36,17 @@ IUPAC_CODES = {
 # Reverse lookup: bases -> IUPAC code
 BASES_TO_IUPAC = {frozenset(v): k for k, v in IUPAC_CODES.items()}
 
+# Complement mapping for reverse complement
+COMPLEMENT = {
+    'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C',
+    'R': 'Y', 'Y': 'R',  # R(A/G) <-> Y(C/T)
+    'S': 'S', 'W': 'W',  # S(G/C) and W(A/T) are self-complementary
+    'K': 'M', 'M': 'K',  # K(G/T) <-> M(A/C)
+    'B': 'V', 'V': 'B',  # B(C/G/T) <-> V(A/C/G)
+    'D': 'H', 'H': 'D',  # D(A/G/T) <-> H(A/C/T)
+    'N': 'N',            # N is self-complementary
+}
+
 AMBIGUOUS_BASES = set('RYSWKMBDHVN')
 VALID_BASES = set('ACGTRYSWKMBDHVN')
 GAP_CHARS = set('-.')
@@ -394,6 +405,11 @@ class OligoAnalyzer:
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
+def reverse_complement(seq: str) -> str:
+    """Return the reverse complement of a DNA sequence (supports IUPAC codes)"""
+    return ''.join(COMPLEMENT.get(base, base) for base in reversed(seq))
+
+
 def format_sequence(seq: str, group_size: int = 3) -> str:
     """Format sequence with spacing for readability"""
     return ' '.join(seq[i:i+group_size] for i in range(0, len(seq), group_size))

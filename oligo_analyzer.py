@@ -17,7 +17,7 @@ from typing import Optional
 try:
     from oligo_engine import (
         OligoAnalyzer, AnalysisResult, QualityReport,
-        format_sequence, format_results_table
+        format_sequence, format_results_table, reverse_complement
     )
 except ImportError:
     # Inline fallback - full engine code included below
@@ -34,9 +34,18 @@ except ImportError:
         'N': {'A', 'C', 'G', 'T'},
     }
     BASES_TO_IUPAC = {frozenset(v): k for k, v in IUPAC_CODES.items()}
+    COMPLEMENT = {
+        'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C',
+        'R': 'Y', 'Y': 'R', 'S': 'S', 'W': 'W',
+        'K': 'M', 'M': 'K', 'B': 'V', 'V': 'B',
+        'D': 'H', 'H': 'D', 'N': 'N',
+    }
     AMBIGUOUS_BASES = set('RYSWKMBDHVN')
     VALID_BASES = set('ACGTRYSWKMBDHVN')
     GAP_CHARS = set('-.')
+
+    def reverse_complement(seq: str) -> str:
+        return ''.join(COMPLEMENT.get(base, base) for base in reversed(seq))
 
     @dataclass
     class AnalysisResult:
@@ -471,7 +480,15 @@ class OligoAnalyzerGUI:
             text="Show percentages in output",
             variable=self.show_percentages_var
         ).grid(row=1, column=0, columnspan=2, sticky='w', pady=2)
-        
+
+        # Reverse complement option
+        self.reverse_complement_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            extra_frame,
+            text="Output as reverse complement (for reverse primer design)",
+            variable=self.reverse_complement_var
+        ).grid(row=2, column=0, columnspan=2, sticky='w', pady=2)
+
         # Run button
         run_frame = ttk.Frame(analysis_frame)
         run_frame.grid(row=3, column=0, columnspan=2, sticky='ew', pady=10)
@@ -721,10 +738,15 @@ AAAAGAAAA"""
             lines.append("G-A Wobble:       Enabled (G treated as A)")
         if self.exclude_n_var.get() and analysis_type == "min_variants":
             lines.append("Exclude N:        Enabled (only 2-fold and 3-fold degenerate codes)")
+        if self.reverse_complement_var.get():
+            lines.append("Orientation:      Reverse complement (for reverse primer)")
 
         lines.append("")
         lines.append("-" * 80)
         lines.append("")
+
+        # Check if reverse complement is needed
+        use_revcomp = self.reverse_complement_var.get()
 
         # Calculate column widths for proper alignment
         num_variants = len(result.variants)
@@ -735,7 +757,8 @@ AAAAGAAAA"""
         max_seq_len = 0
         max_count_len = 0
         for seq, count, pct in result.variants:
-            formatted_seq = self.format_sequence(seq)
+            display_seq = reverse_complement(seq) if use_revcomp else seq
+            formatted_seq = self.format_sequence(display_seq)
             max_seq_len = max(max_seq_len, len(formatted_seq))
             max_count_len = max(max_count_len, len(f"{count:,}"))
 
@@ -756,7 +779,8 @@ AAAAGAAAA"""
         cumulative_pct = 0.0
         for i, (seq, count, pct) in enumerate(result.variants, 1):
             cumulative_pct += pct
-            formatted_seq = self.format_sequence(seq)
+            display_seq = reverse_complement(seq) if use_revcomp else seq
+            formatted_seq = self.format_sequence(display_seq)
             variant_label = f"Variant {i}".ljust(variant_col_width)
             seq_col = formatted_seq.ljust(max_seq_len)
             count_col = f"{count:,}".rjust(max_count_len)
