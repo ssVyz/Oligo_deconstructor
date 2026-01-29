@@ -680,14 +680,14 @@ AAAAGAAAA"""
     def display_results(self, result: AnalysisResult, analysis_type: str):
         """Display analysis results in a clean, copy-friendly format"""
         self.results_text.delete('1.0', tk.END)
-        
+
         # Header
         lines = []
         lines.append("=" * 80)
         lines.append("OLIGO SEQUENCE ANALYSIS RESULTS")
         lines.append("=" * 80)
         lines.append("")
-        
+
         # Analysis info
         type_names = {
             "all_variants": "All Unique Variants (No Ambiguities)",
@@ -697,30 +697,50 @@ AAAAGAAAA"""
         lines.append(f"Analysis Type:    {type_names.get(analysis_type, analysis_type)}")
         lines.append(f"Total Sequences:  {result.total_sequences:,}")
         lines.append(f"Variants Found:   {len(result.variants):,}")
-        
+
         if self.treat_g_as_a_var.get():
             lines.append("G-A Wobble:       Enabled (G treated as A)")
-        
+
         lines.append("")
         lines.append("-" * 80)
         lines.append("")
-        
-        # Results table header (tab-separated for easy Excel paste)
+
+        # Calculate column widths for proper alignment
+        num_variants = len(result.variants)
+        variant_num_width = len(str(num_variants))  # Width needed for the number
+        variant_col_width = len("Variant ") + variant_num_width  # Total width for "Variant N"
+
+        # Find max sequence length (formatted) and max count width
+        max_seq_len = 0
+        max_count_len = 0
+        for seq, count, pct in result.variants:
+            formatted_seq = self.format_sequence(seq)
+            max_seq_len = max(max_seq_len, len(formatted_seq))
+            max_count_len = max(max_count_len, len(f"{count:,}"))
+
+        # Results table header with fixed-width columns
         show_pct = self.show_percentages_var.get()
+        header_variant = "Variant".ljust(variant_col_width)
+        header_seq = "Sequence".ljust(max_seq_len)
+        header_count = "Count".rjust(max_count_len)
+
         if show_pct:
-            lines.append("Variant\tSequence\tCount\tPercentage")
+            lines.append(f"{header_variant}    {header_seq}    {header_count}    Percentage")
             lines.append("-" * 80)
         else:
-            lines.append("Variant\tSequence\tCount")
+            lines.append(f"{header_variant}    {header_seq}    {header_count}")
             lines.append("-" * 80)
-        
-        # Results
+
+        # Results with fixed-width columns
         for i, (seq, count, pct) in enumerate(result.variants, 1):
             formatted_seq = self.format_sequence(seq)
+            variant_label = f"Variant {i}".ljust(variant_col_width)
+            seq_col = formatted_seq.ljust(max_seq_len)
+            count_col = f"{count:,}".rjust(max_count_len)
             if show_pct:
-                lines.append(f"Variant {i}\t{formatted_seq}\t{count:,}\t{pct:.1f}%")
+                lines.append(f"{variant_label}    {seq_col}    {count_col}    {pct:.1f}%")
             else:
-                lines.append(f"Variant {i}\t{formatted_seq}\t{count:,}")
+                lines.append(f"{variant_label}    {seq_col}    {count_col}")
         
         # Coverage info for top_n analysis
         if analysis_type == "top_n" and result.uncovered_count > 0:
