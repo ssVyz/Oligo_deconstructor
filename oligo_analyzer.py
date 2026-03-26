@@ -528,6 +528,16 @@ class OligoAnalyzerGUI:
         )
         self.incremental_pct_spin.grid(row=2, column=1, sticky='w', pady=5)
 
+        # Incremental max ambiguities limit (optional)
+        ttk.Label(options_frame, text="Max ambiguities per variant (0=no limit):").grid(
+            row=3, column=0, sticky='w', pady=5)
+        self.incremental_max_amb_var = tk.StringVar(value="0")
+        self.incremental_max_amb_spin = ttk.Spinbox(
+            options_frame, from_=0, to=50, width=10,
+            textvariable=self.incremental_max_amb_var
+        )
+        self.incremental_max_amb_spin.grid(row=3, column=1, sticky='w', pady=5)
+
         # G-A wobble option
         self.treat_g_as_a_var = tk.BooleanVar(value=False)
         self.treat_g_as_a_check = ttk.Checkbutton(
@@ -535,7 +545,7 @@ class OligoAnalyzerGUI:
             text="Treat G as A (G-T wobble base pairing is not considered a mismatch)",
             variable=self.treat_g_as_a_var
         )
-        self.treat_g_as_a_check.grid(row=3, column=0, columnspan=2, sticky='w', pady=5)
+        self.treat_g_as_a_check.grid(row=4, column=0, columnspan=2, sticky='w', pady=5)
 
         # Exclude N option
         self.exclude_n_var = tk.BooleanVar(value=False)
@@ -544,7 +554,7 @@ class OligoAnalyzerGUI:
             text="Exclude N (any base) as ambiguity - only use 2-fold and 3-fold degenerate codes",
             variable=self.exclude_n_var
         )
-        self.exclude_n_check.grid(row=4, column=0, columnspan=2, sticky='w', pady=5)
+        self.exclude_n_check.grid(row=5, column=0, columnspan=2, sticky='w', pady=5)
         
         # Additional options (expandable)
         extra_frame = ttk.LabelFrame(analysis_frame, text="Additional Options", padding="10")
@@ -647,21 +657,25 @@ class OligoAnalyzerGUI:
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='disabled')
             self.incremental_pct_spin.configure(state='disabled')
+            self.incremental_max_amb_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='disabled')
         elif analysis_type == "min_variants":
             self.max_ambiguities_spin.configure(state='normal')
             self.top_n_spin.configure(state='disabled')
             self.incremental_pct_spin.configure(state='disabled')
+            self.incremental_max_amb_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='normal')
         elif analysis_type == "top_n":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='normal')
             self.incremental_pct_spin.configure(state='disabled')
+            self.incremental_max_amb_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='disabled')
         elif analysis_type == "incremental":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='disabled')
             self.incremental_pct_spin.configure(state='normal')
+            self.incremental_max_amb_spin.configure(state='normal')
             self.exclude_n_check.configure(state='normal')
     
     def load_file(self):
@@ -789,8 +803,11 @@ AAAAGAAAA"""
                 result = self.analyzer.find_top_n_variants(top_n, treat_g_as_a)
             elif analysis_type == "incremental":
                 target_pct = float(self.incremental_pct_var.get())
+                max_amb = int(self.incremental_max_amb_var.get())
+                max_amb_param = max_amb if max_amb > 0 else None
                 result = self.analyzer.find_incremental_variants(
                     target_pct, treat_g_as_a, exclude_n,
+                    max_ambiguities=max_amb_param,
                     progress_callback=lambda msg: self._update_progress(msg)
                 )
             else:
@@ -829,7 +846,8 @@ AAAAGAAAA"""
             "all_variants": "All Unique Variants (No Ambiguities)",
             "min_variants": f"Minimum Variants (Max {self.max_ambiguities_var.get()} Ambiguities)",
             "top_n": f"Top {self.top_n_var.get()} Most Frequent Variants",
-            "incremental": f"Incremental Variants (Target {self.incremental_pct_var.get()}% per variant)",
+            "incremental": f"Incremental Variants (Target {self.incremental_pct_var.get()}% per variant"
+                          f"{f', Max {self.incremental_max_amb_var.get()} ambiguities' if int(self.incremental_max_amb_var.get()) > 0 else ''})",
         }
         lines.append(f"Analysis Type:    {type_names.get(analysis_type, analysis_type)}")
         lines.append(f"Total Sequences:  {result.total_sequences:,}")

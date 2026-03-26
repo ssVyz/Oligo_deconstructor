@@ -403,6 +403,7 @@ class OligoAnalyzer:
 
     def find_incremental_variants(self, target_percentage: float, treat_g_as_a: bool = False,
                                    exclude_n: bool = False,
+                                   max_ambiguities: Optional[int] = None,
                                    progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
         """
         Find variants incrementally, each covering at least target_percentage of remaining sequences.
@@ -415,6 +416,10 @@ class OligoAnalyzer:
             target_percentage: Target coverage percentage (0-100) for each iteration
             treat_g_as_a: If True, treat G and A as equivalent (G-A wobble)
             exclude_n: If True, do not allow N (any base) as an ambiguity code
+            max_ambiguities: Optional limit on the number of ambiguous positions per variant.
+                If set, the search will not exceed this ambiguity level. When the limit is
+                reached before the target coverage, the variant with highest coverage within
+                the limit is selected and the search moves on to the next iteration.
             progress_callback: Optional callback for progress updates
         """
         result = AnalysisResult()
@@ -453,6 +458,8 @@ class OligoAnalyzer:
 
             # Try increasing ambiguity levels starting from 0
             max_possible_ambiguities = len(unique_remaining[0]) if unique_remaining else 0
+            if max_ambiguities is not None:
+                max_possible_ambiguities = min(max_possible_ambiguities, max_ambiguities)
 
             for amb_level in range(max_possible_ambiguities + 1):
                 if found_target:
