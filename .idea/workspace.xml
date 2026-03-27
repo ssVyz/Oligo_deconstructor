@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e7e9fc56-6f28-4515-8fe0-08b93dcf1c17" name="Changes" comment="Implemented incremental variant search">
+    <list default="true" id="e7e9fc56-6f28-4515-8fe0-08b93dcf1c17" name="Changes" comment="changes">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/oligo_analyzer.py" beforeDir="false" afterPath="$PROJECT_DIR$/oligo_analyzer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/oligo_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/oligo_engine.py" afterDir="false" />
@@ -117,7 +117,15 @@
       <option name="project" value="LOCAL" />
       <updated>1769697787003</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="changes">
+      <option name="closed" value="true" />
+      <created>1774536824120</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1774536824120</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -128,6 +136,7 @@
     <MESSAGE value="Reverse complement option" />
     <MESSAGE value="update readme" />
     <MESSAGE value="Implemented incremental variant search" />
-    <option name="LAST_COMMIT_MESSAGE" value="Implemented incremental variant search" />
+    <MESSAGE value="changes" />
+    <option name="LAST_COMMIT_MESSAGE" value="changes" />
   </component>
 </project>

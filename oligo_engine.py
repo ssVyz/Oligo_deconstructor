@@ -212,6 +212,26 @@ class OligoAnalyzer:
     def _count_ambiguities(self, seq: str) -> int:
         """Count number of ambiguous bases in a sequence"""
         return sum(1 for c in seq if c in AMBIGUOUS_BASES)
+
+    def _has_3prime_ambiguity(self, seq: str, no_ambiguity_3prime: int, is_reverse: bool = False) -> bool:
+        """Check if the 3' end region of a sequence contains ambiguities.
+
+        Args:
+            seq: The consensus sequence to check
+            no_ambiguity_3prime: Number of bases at the 3' end that must be unambiguous
+            is_reverse: If True, the primer will be reverse-complemented for output,
+                so the 3' end corresponds to the first N bases of the internal sequence
+
+        Returns:
+            True if the 3' region contains ambiguities (i.e. the sequence is invalid)
+        """
+        if no_ambiguity_3prime <= 0 or not seq:
+            return False
+        if is_reverse:
+            region = seq[:no_ambiguity_3prime]
+        else:
+            region = seq[-no_ambiguity_3prime:]
+        return any(c in AMBIGUOUS_BASES for c in region)
     
     def _sequence_matches_consensus(self, seq: str, consensus: str, treat_g_as_a: bool = False) -> bool:
         """Check if a sequence matches a consensus (with ambiguities)"""
@@ -275,6 +295,8 @@ class OligoAnalyzer:
     
     def find_minimum_variants_greedy(self, max_ambiguities: int, treat_g_as_a: bool = False,
                                       exclude_n: bool = False,
+                                      no_ambiguity_3prime: int = 0,
+                                      is_reverse: bool = False,
                                       progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
         """
         Find minimum set of variants using at most n ambiguities per variant.
@@ -284,6 +306,8 @@ class OligoAnalyzer:
             max_ambiguities: Maximum number of ambiguous positions allowed per variant
             treat_g_as_a: If True, treat G and A as equivalent (G-A wobble)
             exclude_n: If True, do not allow N (any base) as an ambiguity code
+            no_ambiguity_3prime: Number of bases at the 3' end that must not contain ambiguities
+            is_reverse: If True, primer is reverse orientation (3' end is start of internal sequence)
             progress_callback: Optional callback for progress updates
         """
         result = AnalysisResult()
@@ -330,7 +354,8 @@ class OligoAnalyzer:
                     combined = potential_group + [other_seq]
                     consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
 
-                    if is_valid and amb_count <= max_ambiguities:
+                    if is_valid and amb_count <= max_ambiguities and \
+                       not self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                         potential_group.append(other_seq)
 
                 # Create consensus for this group
@@ -338,6 +363,10 @@ class OligoAnalyzer:
 
                 # If consensus is invalid (requires N but excluded), skip this group
                 if not is_valid:
+                    continue
+
+                # Check 3' end constraint
+                if self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                     continue
 
                 # Check actual coverage (may include sequences not in potential_group)
@@ -404,6 +433,8 @@ class OligoAnalyzer:
     def find_incremental_variants(self, target_percentage: float, treat_g_as_a: bool = False,
                                    exclude_n: bool = False,
                                    max_ambiguities: Optional[int] = None,
+                                   no_ambiguity_3prime: int = 0,
+                                   is_reverse: bool = False,
                                    progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
         """
         Find variants incrementally, each covering at least target_percentage of remaining sequences.
@@ -420,6 +451,8 @@ class OligoAnalyzer:
                 If set, the search will not exceed this ambiguity level. When the limit is
                 reached before the target coverage, the variant with highest coverage within
                 the limit is selected and the search moves on to the next iteration.
+            no_ambiguity_3prime: Number of bases at the 3' end that must not contain ambiguities
+            is_reverse: If True, primer is reverse orientation (3' end is start of internal sequence)
             progress_callback: Optional callback for progress updates
         """
         result = AnalysisResult()
@@ -479,7 +512,8 @@ class OligoAnalyzer:
                         combined = potential_group + [other_seq]
                         consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
 
-                        if is_valid and amb_count <= amb_level:
+                        if is_valid and amb_count <= amb_level and \
+                           not self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                             potential_group.append(other_seq)
 
                     # Create consensus for this group
@@ -489,6 +523,10 @@ class OligoAnalyzer:
                         continue
 
                     if amb_count > amb_level:
+                        continue
+
+                    # Check 3' end constraint
+                    if self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                         continue
 
                     # Check actual coverage

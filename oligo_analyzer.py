@@ -149,6 +149,15 @@ except ImportError:
                     return 'A'
             return BASES_TO_IUPAC.get(frozenset(bases), 'N')
 
+        def _has_3prime_ambiguity(self, seq: str, no_ambiguity_3prime: int, is_reverse: bool = False) -> bool:
+            if no_ambiguity_3prime <= 0 or not seq:
+                return False
+            if is_reverse:
+                region = seq[:no_ambiguity_3prime]
+            else:
+                region = seq[-no_ambiguity_3prime:]
+            return any(c in AMBIGUOUS_BASES for c in region)
+
         def _sequence_matches_consensus(self, seq: str, consensus: str, treat_g_as_a: bool = False) -> bool:
             if len(seq) != len(consensus):
                 return False
@@ -194,6 +203,8 @@ except ImportError:
 
         def find_minimum_variants_greedy(self, max_ambiguities: int, treat_g_as_a: bool = False,
                                          exclude_n: bool = False,
+                                         no_ambiguity_3prime: int = 0,
+                                         is_reverse: bool = False,
                                          progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
             result = AnalysisResult()
             result.total_sequences = len(self.sequences)
@@ -219,10 +230,13 @@ except ImportError:
                             continue
                         combined = potential_group + [other_seq]
                         consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
-                        if is_valid and amb_count <= max_ambiguities:
+                        if is_valid and amb_count <= max_ambiguities and \
+                           not self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                             potential_group.append(other_seq)
                     consensus, amb_count, is_valid = self._create_consensus(potential_group, treat_g_as_a, exclude_n)
                     if not is_valid:
+                        continue
+                    if self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                         continue
                     coverage = set()
                     for seq in uncovered:
@@ -267,6 +281,9 @@ except ImportError:
 
         def find_incremental_variants(self, target_percentage: float, treat_g_as_a: bool = False,
                                        exclude_n: bool = False,
+                                       max_ambiguities: Optional[int] = None,
+                                       no_ambiguity_3prime: int = 0,
+                                       is_reverse: bool = False,
                                        progress_callback: Optional[Callable[[str], None]] = None) -> AnalysisResult:
             result = AnalysisResult()
             result.total_sequences = len(self.sequences)
@@ -290,6 +307,8 @@ except ImportError:
                 best_ambiguities = float('inf')
                 found_target = False
                 max_possible_ambiguities = len(unique_remaining[0]) if unique_remaining else 0
+                if max_ambiguities is not None:
+                    max_possible_ambiguities = min(max_possible_ambiguities, max_ambiguities)
                 for amb_level in range(max_possible_ambiguities + 1):
                     if found_target:
                         break
@@ -301,10 +320,13 @@ except ImportError:
                                 continue
                             combined = potential_group + [other_seq]
                             consensus, amb_count, is_valid = self._create_consensus(combined, treat_g_as_a, exclude_n)
-                            if is_valid and amb_count <= amb_level:
+                            if is_valid and amb_count <= amb_level and \
+                               not self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                                 potential_group.append(other_seq)
                         consensus, amb_count, is_valid = self._create_consensus(potential_group, treat_g_as_a, exclude_n)
                         if not is_valid or amb_count > amb_level:
+                            continue
+                        if self._has_3prime_ambiguity(consensus, no_ambiguity_3prime, is_reverse):
                             continue
                         coverage_seqs = set()
                         for seq in unique_remaining:
@@ -555,6 +577,16 @@ class OligoAnalyzerGUI:
             variable=self.exclude_n_var
         )
         self.exclude_n_check.grid(row=5, column=0, columnspan=2, sticky='w', pady=5)
+
+        # No ambiguities at 3' end option
+        ttk.Label(options_frame, text="No ambiguities in last N bases (3' end):").grid(
+            row=6, column=0, sticky='w', pady=5)
+        self.no_amb_3prime_var = tk.StringVar(value="0")
+        self.no_amb_3prime_spin = ttk.Spinbox(
+            options_frame, from_=0, to=50, width=10,
+            textvariable=self.no_amb_3prime_var
+        )
+        self.no_amb_3prime_spin.grid(row=6, column=1, sticky='w', pady=5)
         
         # Additional options (expandable)
         extra_frame = ttk.LabelFrame(analysis_frame, text="Additional Options", padding="10")
@@ -659,24 +691,28 @@ class OligoAnalyzerGUI:
             self.incremental_pct_spin.configure(state='disabled')
             self.incremental_max_amb_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='disabled')
+            self.no_amb_3prime_spin.configure(state='disabled')
         elif analysis_type == "min_variants":
             self.max_ambiguities_spin.configure(state='normal')
             self.top_n_spin.configure(state='disabled')
             self.incremental_pct_spin.configure(state='disabled')
             self.incremental_max_amb_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='normal')
+            self.no_amb_3prime_spin.configure(state='normal')
         elif analysis_type == "top_n":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='normal')
             self.incremental_pct_spin.configure(state='disabled')
             self.incremental_max_amb_spin.configure(state='disabled')
             self.exclude_n_check.configure(state='disabled')
+            self.no_amb_3prime_spin.configure(state='disabled')
         elif analysis_type == "incremental":
             self.max_ambiguities_spin.configure(state='disabled')
             self.top_n_spin.configure(state='disabled')
             self.incremental_pct_spin.configure(state='normal')
             self.incremental_max_amb_spin.configure(state='normal')
             self.exclude_n_check.configure(state='normal')
+            self.no_amb_3prime_spin.configure(state='normal')
     
     def load_file(self):
         """Load sequences from a FASTA file"""
@@ -783,6 +819,8 @@ AAAAGAAAA"""
         analysis_type = self.analysis_type.get()
         treat_g_as_a = self.treat_g_as_a_var.get()
         exclude_n = self.exclude_n_var.get()
+        no_amb_3prime = int(self.no_amb_3prime_var.get())
+        is_reverse = self.reverse_complement_var.get()
 
         # Disable run button during analysis
         self.run_btn.configure(state='disabled')
@@ -796,6 +834,8 @@ AAAAGAAAA"""
                 max_amb = int(self.max_ambiguities_var.get())
                 result = self.analyzer.find_minimum_variants_greedy(
                     max_amb, treat_g_as_a, exclude_n,
+                    no_ambiguity_3prime=no_amb_3prime,
+                    is_reverse=is_reverse,
                     progress_callback=lambda msg: self._update_progress(msg)
                 )
             elif analysis_type == "top_n":
@@ -808,6 +848,8 @@ AAAAGAAAA"""
                 result = self.analyzer.find_incremental_variants(
                     target_pct, treat_g_as_a, exclude_n,
                     max_ambiguities=max_amb_param,
+                    no_ambiguity_3prime=no_amb_3prime,
+                    is_reverse=is_reverse,
                     progress_callback=lambda msg: self._update_progress(msg)
                 )
             else:
@@ -857,6 +899,9 @@ AAAAGAAAA"""
             lines.append("G-A Wobble:       Enabled (G treated as A)")
         if self.exclude_n_var.get() and analysis_type == "min_variants":
             lines.append("Exclude N:        Enabled (only 2-fold and 3-fold degenerate codes)")
+        no_amb_3prime = int(self.no_amb_3prime_var.get())
+        if no_amb_3prime > 0 and analysis_type in ("min_variants", "incremental"):
+            lines.append(f"3' Constraint:    No ambiguities in last {no_amb_3prime} bases (3' end)")
         if self.reverse_complement_var.get():
             lines.append("Orientation:      Reverse complement (for reverse primer)")
 
